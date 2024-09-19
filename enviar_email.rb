@@ -3,12 +3,12 @@ require 'yaml'
 
 module EnviarEmail
 
-  def enviar_email(titulo, corpo, informacao,informacao_complementar='',receber_email)
+  def enviar_email(titulo, corpo, informacao,informacao_complementar='')
     config_path = File.join(__dir__, 'config.yml')
     config = YAML.load_file(config_path)
     # Configuração do e-mail
     sender_email = config['smtp']['sender_email']
-    receiver_emails = receber_email
+    receiver_emails = config['smtp']['receiver_emails']
     smtp_username = config['smtp']['username']
     smtp_password = config['smtp']['password']
 
