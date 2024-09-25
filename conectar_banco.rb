@@ -21,14 +21,13 @@ class ConectarBanco
 
   # Método para fechar a conexão com o banco de dados.
   def fechar_conexao
-    if @db
-      @db.close
-      puts "Conexão fechada com sucesso"
-    else
-      puts "Nenhuma conexão ativa para fechar"
-    end
+    return unless @db
+    @db.close
+    puts "Conexão fechada com sucesso"
   rescue SQLite3::Exception => e
     puts "Erro ao fechar a conexão: #{e.message}"
+  ensure
+    @db = nil
   end
 
   # Método genérico para executar scripts SQL e exibir resultados.
@@ -41,42 +40,30 @@ class ConectarBanco
     end
   end
 
-  # Método para realizar o ping em uma lista de IPs obtidos a partir do banco de dados.
+  # Metodo para realizar o ping em uma lista de IPs obtidos a partir do banco de dados.
   def ping(script)
     hora_atual = Time.now # Obtém a hora atual do sistema.
+
     # Define o intervalo de horário permitido para execução do ping.
-    hora_inicio = Time.new(hora_atual.year, hora_atual.month, hora_atual.day, 00, 10, 0) # 10:30 AM
+    hora_inicio = Time.new(hora_atual.year, hora_atual.month, hora_atual.day, 10, 30, 0) # 00:00 AM
     hora_fim = Time.new(hora_atual.year, hora_atual.month, hora_atual.day, 21, 55, 0)    # 21:55 PM
 
-    # Verifica se o horário atual está dentro do intervalo permitido.
-    if hora_atual >= hora_inicio && hora_atual <= hora_fim
-
-      contador=0
-      loop do
+    loop do
+      # Verifica se o horário atual está dentro do intervalo permitido.
+      if hora_atual >= hora_inicio && hora_atual <= hora_fim
+        contador = 0
         ips_falhos = [] # Array para armazenar IPs que falharam no ping.
+
         # Executa o comando SQL para obter a lista de IPs.
         executar_comando(script) do |rows|
           rows.each do |row|
             ip = row.join(' ') # Converte a linha do banco de dados em um IP.
-            puts "Pingando IP: #{ip}"
+            ip = ip_gateway_decrement(ip)
 
-            falhas = 0
-            # Tenta pingar o IP 3 vezes para verificar conectividade.
-            3.times do
-              if system("ping -n 1 #{ip}") # Executa o comando ping no sistema.
-                puts "#{ip} respondeu ao ping"
-              else
-                puts "#{ip} não respondeu ao ping"
-                falhas += 1
-              end
-            end
-
-            # Se falhar 2 ou mais vezes, adiciona o IP à lista de falhas.
+            # Verifica falhas no ping (3 tentativas).
+            falhas = 3.times.count { !system("ping -n 1 #{ip}") }
             if falhas >= 2
-              puts "#{ip} falhou em 2 ou mais tentativas. Adicionando à lista de falhas."
               ips_falhos << ip
-            else
-              puts "#{ip} respondeu com sucesso ao menos 2 vezes."
             end
           end
         end
@@ -84,37 +71,52 @@ class ConectarBanco
         # Se houver IPs que falharam no ping, busca as informações dessas lojas no banco.
         if ips_falhos.any?
           # Converte a lista de IPs para uma string adequada para o comando SQL.
-          ip_list = ips_falhos.map { |ip| "'#{ip}'" }.join(', ')
+          ip_list = ips_falhos.map { |ip| "'#{ip_gateway_increment(ip)}'" }.join(', ')
+
           lojas_com_erro = [] # Array para armazenar informações das lojas com erro.
 
           # Executa um comando SQL para buscar informações das filiais com base nos IPs falhos.
-          executar_comando("SELECT FILIAL, COD_FILIAL, CNPJ FROM filiais_ip WHERE IP IN (#{ip_list})") do |linhas|
+          executar_comando("SELECT FILIAL, COD_FILIAL, CNPJ, IP FROM filiais_ip WHERE IP IN (#{ip_list})") do |linhas|
             linhas.each do |linha|
               filial = linha[0]
               cod_filial = linha[1]
               cnpj = linha[2]
+              ip = linha[3]
+              ip = ip_gateway_decrement(ip)
+
               # Formata a mensagem para cada filial com erro.
-              info_formatada = "Filial - #{filial} - (#{cod_filial.to_s.rjust(6, '0')}) do CNPJ: #{cnpj}, favor verificar"
+              info_formatada = "Filial - #{filial} - (#{cod_filial.to_s.rjust(6, '0')}) do CNPJ: #{cnpj}, IP do Fortnet: #{ip}, favor verificar VPN/Internet"
               lojas_com_erro << info_formatada # Adiciona a informação formatada ao array.
             end
           end
 
           # Se houver informações de lojas com erro, envia um e-mail com os detalhes.
           unless contador < 25
-            if lojas_com_erro.any?
-              # Envia o e-mail utilizando o método enviar_email do módulo EnviarEmail.
-              enviar_email("Lojas sem conexão com a Matriz", "FILIAIS COM ERRO", lojas_com_erro.join("<br>"))
-              contador = 0
-            end
+            enviar_email_lojas_com_erro(lojas_com_erro)
+            contador = 0
           end
-          contador+=1
         end
+      else
+        # Se o horário estiver fora do intervalo permitido, calcule o tempo de espera até o próximo ciclo.
+        if hora_atual < hora_inicio
+          # Estamos antes do horário permitido no mesmo dia
+          tempo_espera = hora_inicio - hora_atual
+        else
+          # Estamos após o horário permitido; espera até o próximo dia
+          hora_proximo_inicio = Time.new(hora_atual.year, hora_atual.month, hora_atual.day + 1, 00, 00, 0)
+          tempo_espera = hora_proximo_inicio - hora_atual
+        end
+
+        # Converte o tempo de espera em horas e minutos
+        horas = (tempo_espera / 3600).to_i # 1 hora = 3600 segundos
+        minutos = ((tempo_espera % 3600) / 60).to_i # Resto de segundos convertido para minutos
+
+        puts "Sistema fora do horário de funcionamento. Esperando #{horas}:#{minutos}hr até o próximo horário permitido..."
+        sleep(tempo_espera) # Pausa a execução até o horário permitido.
       end
-    else
-      # Caso o horário esteja fora do intervalo permitido, não executa o ping.
-      puts "Sistema fora do horario de funcionamento"
     end
   end
+
 
   # Método para executar um comando SQL no banco de dados.
   # Verifica se o comando é permitido e, se sim, executa o comando e retorna os resultados.
@@ -134,4 +136,23 @@ class ConectarBanco
   def comando_permitido?(script)
     script.strip.downcase.start_with?('select') # Verifica se o script começa com 'select'.
   end
+  def ip_gateway_decrement(ip)
+    partes_ip = ip.split(".")
+    ultimo_numero = partes_ip[-1].to_i - 1
+    partes_ip[-1] = ultimo_numero.to_s
+    partes_ip.join(".")
+  end
+
+  def ip_gateway_increment(ip)
+    partes_ip = ip.split(".")
+    ultimo_numero = partes_ip[-1].to_i + 1
+    partes_ip[-1] = ultimo_numero.to_s
+    partes_ip.join(".")
+  end
+  def enviar_email_lojas_com_erro(lojas_com_erro)
+    if lojas_com_erro.any?
+      enviar_email("Lojas sem conexão com a Matriz", "FILIAIS COM ERRO", lojas_com_erro.join("<br>"))
+    end
+  end
+
 end
