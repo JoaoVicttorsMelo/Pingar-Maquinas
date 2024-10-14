@@ -1,4 +1,6 @@
 require 'sqlite3'
+require 'logger'
+require 'fileutils'
 require_relative 'enviar_email'
 
 # Classe para gerenciar a conexão com o banco de dados e enviar e-mails em caso de falhas.
@@ -7,6 +9,7 @@ class ConectarBanco
 
   # Método inicializador da classe. Recebe o caminho do banco de dados como argumento.
   def initialize(caminho_db)
+    setup_logger
     @banco = caminho_db
     abrir_conexao # Estabelece a conexão com o banco de dados assim que a classe é instanciada.
   end
@@ -14,32 +17,67 @@ class ConectarBanco
   # Método para abrir a conexão com o banco de dados.
   def abrir_conexao
     @db = SQLite3::Database.new(@banco)
-    puts "Conexão estabelecida com sucesso"
+    @logger.info "Conexão estabelecida com sucesso"
   rescue SQLite3::Exception => e
-    puts "Erro ao estabelecer conexão: #{e.message}"
+    @logger.error "Erro ao estabelecer conexão: #{e.message}"
   end
 
   # Método para fechar a conexão com o banco de dados.
   def fechar_conexao
     return unless @db
     @db.close
-    puts "Conexão fechada com sucesso"
+    @logger.info "Conexão fechada com sucesso"
   rescue SQLite3::Exception => e
-    puts "Erro ao fechar a conexão: #{e.message}"
+    @logger.error "Erro ao fechar a conexão: #{e.message}"
   ensure
     @db = nil
   end
+
+
 
   # Método genérico para executar scripts SQL e exibir resultados.
   # O script deve ser passado como argumento e precisa ser apenas de consulta (SELECT).
   def script(script)
     executar_comando(script) do |rows|
       rows.each_with_index do |row, i|
-        puts "#{i + 1} - #{row.join(' ')}" # Exibe cada linha de resultado no formato "1 - valor1 valor2..."
+        @logger.info "#{i + 1} - #{row.join(' ')}" # Exibe cada linha de resultado no formato "1 - valor1 valor2..."
       end
     end
   end
 
+  private
+  def setup_logger
+    project_root = File.expand_path(File.join(__dir__, '../pingar_maquinas'))
+    log_dir = File.join(project_root, 'log')
+    @log_file = File.join(log_dir, 'database.log')
+
+    ensure_log_file_exists
+
+    @logger = Logger.new(@log_file)
+    @logger.level = Logger::INFO
+
+    # Teste inicial do logger
+    @logger.info("Logger iniciado com sucesso")
+  rescue StandardError => e
+    p "Erro ao configurar logger: #{e.message}"
+    p "Stacktrace: #{e.backtrace.join("\n")}"
+    @logger = Logger.new(STDOUT)
+  end
+
+  def ensure_log_file_exists
+    FileUtils.mkdir_p(File.dirname(@log_file))
+
+    unless File.exist?(@log_file)
+      FileUtils.touch(@log_file)
+    end
+
+    # Verifica se o arquivo é gravável
+    unless File.writable?(@log_file)
+      raise "Arquivo de log não é gravável: #{@log_file}"
+    end
+  end
+
+  public
   # Metodo para realizar o ping em uma lista de IPs obtidos a partir do banco de dados.
   def ping(script)
     hora_atual = Time.now # Obtém a hora atual do sistema.
@@ -58,7 +96,6 @@ class ConectarBanco
         executar_comando(script) do |rows|
           rows.each do |row|
             ip = row.join(' ') # Converte a linha do banco de dados em um IP.
-            ip = ip_gateway_decrement(ip)
 
             # Verifica falhas no ping (3 tentativas).
             falhas = 3.times.count { !system("ping -n 1 #{ip}") }
@@ -71,7 +108,7 @@ class ConectarBanco
         # Se houver IPs que falharam no ping, busca as informações dessas lojas no banco.
         if ips_falhos.any?
           # Converte a lista de IPs para uma string adequada para o comando SQL.
-          ip_list = ips_falhos.map { |ip| "'#{ip_gateway_increment(ip)}'" }.join(', ')
+          ip_list = ips_falhos.map { |ip| "'#{(ip)}'" }.join(', ')
 
           lojas_com_erro = [] # Array para armazenar informações das lojas com erro.
 
@@ -82,13 +119,13 @@ class ConectarBanco
               cod_filial = linha[1]
               cnpj = linha[2]
               ip = linha[3]
-              ip = ip_gateway_decrement(ip)
 
               # Formata a mensagem para cada filial com erro.
-              info_formatada = "Filial - #{filial} - (#{cod_filial.to_s.rjust(6, '0')}) do CNPJ: #{cnpj}, IP do Fortnet: #{ip}, favor verificar VPN/Internet"
+              info_formatada = "Filial - #{filial} - (#{cod_filial.to_s.rjust(6, '0')}) do CNPJ: #{cnpj}, IP pingado: #{ip}, favor verificar VPN/Internet"
               lojas_com_erro << info_formatada # Adiciona a informação formatada ao array.
             end
           end
+          contador+=1
 
           # Se houver informações de lojas com erro, envia um e-mail com os detalhes.
           unless contador < 25
@@ -111,7 +148,7 @@ class ConectarBanco
         horas = (tempo_espera / 3600).to_i # 1 hora = 3600 segundos
         minutos = ((tempo_espera % 3600) / 60).to_i # Resto de segundos convertido para minutos
 
-        puts "Sistema fora do horário de funcionamento. Esperando #{horas}:#{minutos}hr até o próximo horário permitido..."
+        @logger.info "Sistema fora do horário de funcionamento. Esperando #{horas}:#{minutos}hr até o próximo horário permitido..."
         sleep(tempo_espera) # Pausa a execução até o horário permitido.
       end
     end
@@ -125,10 +162,10 @@ class ConectarBanco
       rows = @db.execute(script) # Executa o comando SQL.
       yield(rows) if block_given? # Passa as linhas do resultado para um bloco, se houver.
     else
-      puts "Usuário não é capaz de fazer qualquer modificação, apenas consulta"
+      @logger.info "Usuário não é capaz de fazer qualquer modificação, apenas consulta"
     end
   rescue SQLite3::Exception => e
-    puts "Erro ao executar o comando: #{e.message}" # Exibe mensagem de erro em caso de falha na execução.
+    @logger.error "Erro ao executar o comando: #{e.message}" # Exibe mensagem de erro em caso de falha na execução.
   end
 
   # Metodo para verificar se o comando SQL é permitido.
@@ -136,12 +173,7 @@ class ConectarBanco
   def comando_permitido?(script)
     script.strip.downcase.start_with?('select') # Verifica se o script começa com 'select'.
   end
-  def ip_gateway_decrement(ip)
-    partes_ip = ip.split(".")
-    ultimo_numero = partes_ip[-1].to_i - 1
-    partes_ip[-1] = ultimo_numero.to_s
-    partes_ip.join(".")
-  end
+
 
   def ip_gateway_increment(ip)
     partes_ip = ip.split(".")

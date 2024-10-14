@@ -9,19 +9,18 @@ module EnviarEmail
     # Configuração do e-mail
     sender_email = config['smtp']['sender_email']
     receiver_emails = config['smtp']['receiver_emails']
-    smtp_username = config['smtp']['username']
-    smtp_password = config['smtp']['password']
+    adress = config['smtp']['address']
+    domain = config['smtp']['domain']
 
-    # Configurações do Gmail
+    # Configurações do servidor SMTP interno
     options = {
-      address: 'smtp.gmail.com',
-      port: 587,
-      domain: 'gmail.com',
-      user_name: smtp_username,
-      password: smtp_password,
-      authentication: 'plain',
-      enable_starttls_auto: true
+      address: adress,
+      port: 25,
+      domain: domain,
+      authentication: nil,
+      enable_starttls_auto: false
     }
+
 
     Mail.defaults do
       delivery_method :smtp, options
