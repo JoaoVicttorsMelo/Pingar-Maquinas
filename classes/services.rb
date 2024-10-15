@@ -59,6 +59,7 @@ class Services
     raise "Arquivo de log não é gravável: #{@log_file}" unless File.writable?(@log_file)
   end
 
+  public
   # Verifica se a hora atual está dentro do intervalo permitido.
   def horario_permitido?(hora)
     hora_inicio = Time.new(hora.year, hora.month, hora.day, 9, 30, 0)
@@ -66,6 +67,7 @@ class Services
     hora >= hora_inicio && hora <= hora_fim
   end
 
+  public
   # Pinga um IP três vezes e retorna o IP caso falhe duas ou mais vezes.
   def pingar_ips(ip)
     falhas = 3.times.count { !system("ping -n 1 #{ip}") }
@@ -96,7 +98,6 @@ class Services
             lojas_com_erro << info_formatada
           end
         end
-
         # Envia e-mail se houver lojas com erro
         enviar_email_lojas_com_erro(lojas_com_erro) unless lojas_com_erro.empty?
       else
