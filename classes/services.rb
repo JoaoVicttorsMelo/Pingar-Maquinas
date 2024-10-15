@@ -2,8 +2,8 @@ require 'sqlite3'
 require 'logger'
 require 'fileutils'
 require_relative 'filial_ip'  # Model para acessar a tabela filiais_ip
-require_relative 'conexao_banco'  # Módulo para gerenciar a conexão com o banco de dados
-require_relative 'enviar_email'  # Módulo para enviar e-mails
+require_relative '../lib/conexao_banco'  # Módulo para gerenciar a conexão com o banco de dados
+require_relative '../lib/enviar_email'  # Módulo para enviar e-mails
 
 # Classe Services para gerenciar conexão com o banco, pings em IPs e envio de e-mails.
 class Services
@@ -80,14 +80,14 @@ class Services
     loop do
       if horario_permitido?(hora_atual)
         lojas_com_erro = []
-        ips = FilialIp.where(servidor: 1).select(:ip, :filial, :cod_filial, :cnpj)
+        ips = FiliaisIp.where(servidor: 1).select(:ip, :filial, :cod_filial, :cnpj)
 
         ips.each do |linhas|
           # Acessa as colunas corretamente
-          ip = linhas.ip
-          filial = linhas.filial
-          cod_filial = linhas.cod_filial
-          cnpj = linhas.cnpj
+          ip = linhas.IP
+          filial = linhas.FILIAL
+          cod_filial = linhas.COD_FILIAL
+          cnpj = linhas.CNPJ
 
           # Pinga o IP e registra falhas
           ips_falhos = pingar_ips(ip)

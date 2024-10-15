@@ -1,4 +1,4 @@
-require_relative 'services'
+require_relative 'classes/services'
 require 'yaml'
 
 config_path = File.join(__dir__, 'config.yml')
