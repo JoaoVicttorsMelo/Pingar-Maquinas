@@ -37,7 +37,7 @@ class Services
 
   # Configura o logger e cria o arquivo de log se necessário.
   def setup_logger
-    project_root = File.expand_path(File.join(__dir__, '../pingar_maquinas'))
+    project_root = File.expand_path(File.join(__dir__, '..'))
     log_dir = File.join(project_root, 'log')
     @log_file = File.join(log_dir, 'database.log')
 
